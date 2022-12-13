@@ -4,12 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4b0e2637-33db-468a-af01-471ca16b5430" name="Changes" comment="">
+    <list default="true" id="4b0e2637-33db-468a-af01-471ca16b5430" name="Changes" comment="Useless files deleted. main.py has been cleaned up a bit and more features have been added.">
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/kaksoisheiluri.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/oscillator.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/testing.py" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -231,8 +228,15 @@
       <workItem from="1669622444927" duration="4804000" />
       <workItem from="1670507823956" duration="1230000" />
       <workItem from="1670860434576" duration="595000" />
-      <workItem from="1670918681892" duration="13135000" />
+      <workItem from="1670918681892" duration="14295000" />
     </task>
+    <task id="LOCAL−00001" summary="Useless files deleted. main.py has been cleaned up a bit and more features have been added.">
+      <created>1670937953945</created>
+      <option name="number" value="LOCAL−00001" />
+      <option name="presentableId" value="LOCAL−00001" />
+      <updated>1670937953945</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -243,11 +247,27 @@
       <map>
         <entry key="MAIN">
           <value>
-            <State />
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="origin/master" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
           </value>
         </entry>
       </map>
     </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Useless files deleted. main.py has been cleaned up a bit and more features have been added." />
+    <option name="LAST_COMMIT_MESSAGE" value="Useless files deleted. main.py has been cleaned up a bit and more features have been added." />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/Kandi$testing2.coverage" NAME="testing2 Coverage Results" MODIFIED="1669565708814" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
