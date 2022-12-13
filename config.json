@@ -1,0 +1,12 @@
+{
+  "N": 3,
+  "T": 1,
+  "r": 0.1,
+  "phi": 0.1,
+  "MIN_X_AND_Y": -5,
+  "MAX_X_AND_Y": 5,
+  "RESOLUTION": 51,
+  "DURATION": 5,
+  "TIME_STEP": 0.5,
+  "SAVE": false
+}
