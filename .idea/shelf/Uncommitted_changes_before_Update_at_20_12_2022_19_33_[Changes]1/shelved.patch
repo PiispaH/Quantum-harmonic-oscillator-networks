@@ -1,0 +1,27 @@
+Index: config.json
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>{\r\n  \"N\": 3,\r\n  \"T\": 1,\r\n  \"r\": 0.1,\r\n  \"phi\": 0.1,\r\n  \"MIN_X_AND_Y\": -5,\r\n  \"MAX_X_AND_Y\": 5,\r\n  \"RESOLUTION\": 51,\r\n  \"DURATION\": 5,\r\n  \"TIME_STEP\": 0.5,\r\n  \"SAVE\": false\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/config.json b/config.json
+--- a/config.json	
++++ b/config.json	
+@@ -1,12 +1,12 @@
+ {
+-  "N": 3,
++  "N": 1,
+   "T": 1,
+-  "r": 0.1,
+-  "phi": 0.1,
++  "r": 0.5,
++  "phi": 0.0,
+   "MIN_X_AND_Y": -5,
+   "MAX_X_AND_Y": 5,
+   "RESOLUTION": 51,
+-  "DURATION": 5,
++  "DURATION": 1,
+   "TIME_STEP": 0.5,
+   "SAVE": false
+ }
