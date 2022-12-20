@@ -6,7 +6,7 @@ import networkx as nx
 from random import randint
 from json import load
 from matplotlib.animation import PillowWriter
-#import matplotlib;matplotlib.use("TkAgg")
+import matplotlib;matplotlib.use("TkAgg")
 
 # Reading the config file and setting the constants values
 with open("config.json") as file:
@@ -26,6 +26,9 @@ SAVE = constants["SAVE"]                                # Whether to save the an
 STEPS = int(DURATION / TIME_STEP)                       # How many steps in whole simulation
 TIMES = np.linspace(0, STEPS, STEPS + 1) * TIME_STEP    # Instances of time, where values are calculated
 
+# The frequencies of the oscillators
+frequencies = np.ones(N)
+
 # Vector for the initial state
 initial_state_vector = np.zeros(2)
 
@@ -36,13 +39,12 @@ zero = np.zeros((N, N))
 J = np.block([[zero, np.identity(N)],
               [-1 * np.identity(N), zero]])
 
-# The frequencies of the oscillators
-#frequencies = np.ones(N)
-
+"""
 frequencies = []
 for i in range(N):
     frequencies.append(1 + i * 0.5)
 frequencies = np.array(frequencies)
+"""
 
 
 # Calculates the expectation value of the operators Q_i squared
@@ -126,19 +128,22 @@ sine_vector = np.vectorize(sine)
 
 
 # Creates the symplectic matrix for a specific moment in time
-def symplectic(t: float, K: np.ndarray, interacting=False) -> np.ndarray:
+def symplectic(t: float, K: np.ndarray, kind: str) -> np.ndarray:
     block_cos = np.diag(cosine_vector(frequencies, t))
     block_sin = np.diag(sine_vector(frequencies, t))
 
     freq_diag = np.diag(frequencies)
     inverse_freq_diag = np.linalg.inv(freq_diag)
 
-    if interacting:
+    if kind == "interacting":
         S = np.block([[K @ block_cos, K @ (inverse_freq_diag * block_sin)],
                       [K @ (-freq_diag * block_sin), K @ block_cos]])
-    else:
+    elif kind == "non_interacting":
         S = np.block([[block_cos, inverse_freq_diag * block_sin],
                       [-freq_diag * block_sin, block_cos]])
+    else:
+        raise ValueError("Function symplectic() argument 'kind' invalid")
+
     return S
 
 
@@ -210,6 +215,7 @@ def plot_expectation(Q_values: list, P_values: list, times: np.ndarray, label: s
 
 def wigner_visualization(W, ax_range):
     fig = plt.figure()
+    ax = plt.axes(xlabel="Q", ylabel="P")
 
     plt.contourf(ax_range, ax_range, W, 100)
     plt.colorbar()
@@ -221,7 +227,7 @@ def wigner_visualization(W, ax_range):
 
 def wigner_plot_ani(frame, W, ax_range):
     fig = plt.figure()
-    ax = plt.axes(xlim=(-5, 5), ylim=(-5, 5), xlabel='x', ylabel='y')
+    ax = plt.axes(xlim=(-5, 5), ylim=(-5, 5), xlabel='Q', ylabel='P')
 
     cont = plt.contourf(ax_range, ax_range, W[frame])  # first image on screen
     plt.colorbar()
@@ -237,14 +243,15 @@ def wigner_animation(W, ax_range, fig, save=False):
     anim = ani.FuncAnimation(fig, animation, frames=len(W), fargs=(W, ax_range))
     plt.show()
 
-    #if save:
-        #writer = PillowWriter(fps=30)
-        #anim.save("Heiluri.gif", writer=writer)
+    if save:
+        writer = PillowWriter(fps=30)
+        anim.save("Heiluri.gif", writer=writer)
 
 
 def wigner_function(cov, vector, initial_vector) -> np.ndarray:
     oe = vector - initial_vector
-    wigner = 1 / (2 * np.pi * np.sqrt(np.linalg.det(cov))) * np.exp(-0.5 * oe @ np.linalg.inv(cov) @ np.transpose(oe))
+    wigner = 1 / (2 * np.pi * np.sqrt(np.linalg.det(cov))) *\
+        np.exp(-0.5 * oe @ np.linalg.inv(cov) @ np.transpose(oe))
 
     return wigner
 
@@ -300,7 +307,7 @@ def covariance_save(N: int, t: float, oscillators: dict, diagonal_non: np.ndarra
     for i in range(N):
         if t == 0:
             oscillators[f"{i}"] = {'Q': [(diagonal_non[i], diagonal_int[i], diagonal_old[i])]
-                , 'P': [(diagonal_non[i + N], diagonal_int[i + N], diagonal_old[i + N])]}
+                                   , 'P': [(diagonal_non[i + N], diagonal_int[i + N], diagonal_old[i + N])]}
 
         else:
             oscillators[f"{i}"]['Q'].append((diagonal_non[i], diagonal_int[i], diagonal_old[i]))
@@ -353,28 +360,31 @@ def main():
 
     # Iterates the initial state in three different bases
     for t in TIMES:
+        if t == 0.0:
+            print("JOu")
         # The corresponding symplectic matrix S in the non-interacting base for the value of t
-        S_noninteracting = symplectic(t, K)
-        diagonal_non, new_cov_X_non = new_cov_calculation(S_noninteracting, cov_X_initial)
+        S_non = symplectic(t, K, "non_interacting")
+        diagonal_non, new_cov_X_non = new_cov_calculation(S_non, cov_X_initial)
         if N == 1:
+            print(new_cov_X_non)
             wigner_operations(grid, RESOLUTION, new_cov_X_non, wigners, initial_state_vector)
 
         # S in the interacting base
-        S_interacting = symplectic(t, K, interacting=True)
-        diagonal_int, new_cov_X_int = new_cov_calculation(S_interacting, cov_X_initial)
+        S_int = symplectic(t, K, "interacting")
+        diagonal_int, new_cov_X_int = new_cov_calculation(S_int, cov_X_initial)
 
         # S in the old base
         X = np.block([[K.transpose(), zero],
                       [zero, K.transpose()]])
-        S_old = X.transpose() @ S_noninteracting @ X
+        S_old = X.transpose() @ S_non @ X
         diagonal_old, new_cov_X_old = new_cov_calculation(S_old, cov_X_initial)
 
         # Saves the three current covariance matrices
         covariance_save(N, t, oscillators, diagonal_non, diagonal_int, diagonal_old)
 
         # A check is done that all the S matrices are still symplectic
-        if not sanity_check_1(J, S_noninteracting, S_interacting, S_old):
-            print("The matrix S_non is not symplectic anymore.")
+        if not sanity_check_1(J, S_non, S_int, S_old):
+            print("The matrix S is not symplectic anymore.")
             break
 
     stop = timeit.default_timer()
