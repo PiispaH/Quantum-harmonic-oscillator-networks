@@ -6,7 +6,7 @@ import networkx as nx
 from random import randint
 from json import load
 from matplotlib.animation import PillowWriter
-import matplotlib;matplotlib.use("TkAgg")
+#import matplotlib;matplotlib.use("TkAgg")
 
 # Reading the config file and setting the constants values
 with open("config.json") as file:
@@ -16,6 +16,8 @@ N = constants["N"]                                      # Number of oscillators
 T = constants["T"]                                      # Temperature
 r = constants["r"]                                      # Radius of the initial state
 phi = constants["phi"]                                  # Rotation of the initial state
+INITIAL_Q = constants["INITIAL_Q"]                      # Value of Q the initial state
+INITIAL_P = constants["INITIAL_P"]                      # Value of P in the initial state
 
 MIN_X_AND_Y = constants["MIN_X_AND_Y"]                  # Minimum value for x and y in plots
 MAX_X_AND_Y = constants["MAX_X_AND_Y"]                  # Maximum value for x and y in plots
@@ -28,23 +30,17 @@ TIMES = np.linspace(0, STEPS, STEPS + 1) * TIME_STEP    # Instances of time, whe
 
 # The frequencies of the oscillators
 frequencies = np.ones(N)
+#frequencies = np.array([1.1, 1.0, 1.0, 1.0])
 
 # Vector for the initial state
-initial_state_vector = np.zeros(2)
+initial_state_vector = np.array([INITIAL_Q, INITIAL_P])
 
 # Defining a NxN zero matrix to help construct the other matrices
-zero = np.zeros((N, N))
+zero_block = np.zeros((N, N))
 
 # Defining the J matrix
-J = np.block([[zero, np.identity(N)],
-              [-1 * np.identity(N), zero]])
-
-"""
-frequencies = []
-for i in range(N):
-    frequencies.append(1 + i * 0.5)
-frequencies = np.array(frequencies)
-"""
+J = np.block([[zero_block, np.identity(N)],
+              [-1 * np.identity(N), zero_block]])
 
 
 # Calculates the expectation value of the operators Q_i squared
@@ -64,11 +60,6 @@ def expectation_value_Q2(frequency: np.ndarray) -> np.ndarray:
     return values
 
 
-# Vectorizes the function and applies it to get the expectation values for Q^2
-E_Q2_vector = np.vectorize(expectation_value_Q2)
-Q2_expectation = E_Q2_vector(frequencies)
-
-
 # Calculates the expectation value of the operators P_i squared
 def expectation_value_P2(frequency: np.ndarray) -> np.ndarray:
     if T == 0:
@@ -80,42 +71,55 @@ def expectation_value_P2(frequency: np.ndarray) -> np.ndarray:
     return value
 
 
-# Vectorizes the function and applies it to get the expectation values for P^2
-E_P2_vector = np.vectorize(expectation_value_P2)
-P2_expectation = E_P2_vector(frequencies)
-
-
-def initial_cov_matrix(N: int, zero: np.ndarray, frequencies: np.ndarray) -> np.ndarray:
+def initial_cov_matrix(zero: np.ndarray, oscillator_freqs: np.ndarray,
+                       Q2_expectation: np.ndarray, P2_expectation: np.ndarray) -> np.ndarray:
+    # If only one oscillator is simulated, squeezing and rotation of the state are taken into account
     if N == 1:
         # Creating the parts presenting the squeezing and displacement operators in the covariance matrix
-        Q2_multiplier = []
-        P2_multiplier = []
+        Q2_multiplier = np.cosh(2 * r) + np.sinh(2 * r) * np.cos(phi)
+        P2_multiplier = np.cosh(2 * r) - np.sinh(2 * r) * np.cos(phi)
 
-        for i in range(N):
-            Q2_multiplier.append(np.cosh(2 * r) + np.sinh(2 * r) * np.cos(phi))
-            P2_multiplier.append(np.cosh(2 * r) - np.sinh(2 * r) * np.cos(phi))
-
-        off_diagonal = - (1 / (np.exp(frequencies / T) - 1) + 0.5) * np.sinh(2 * r) * np.sin(phi)
+        # The off diagonal components of the matrix
+        off_diagonal = - (1 / (np.exp(oscillator_freqs / T) - 1) + 0.5) * np.sinh(2 * r) * np.sin(phi)
 
         # Creating the covariance matrix describing the initial state
         cov_X_initial = np.block([[np.diag(Q2_expectation * Q2_multiplier), off_diagonal],
                                   [off_diagonal, np.diag(P2_expectation * P2_multiplier)]])
 
+    # If more than one oscillator is simulated, the initial covariance matrix is a diagonal matrix
+    # consisting of the Q2 and P2 expectation values
     else:
         cov_X_initial = np.block([[np.diag(Q2_expectation), zero],
                                   [zero, np.diag(P2_expectation)]])
 
     return cov_X_initial
 
-#
-# Constructing the symplectic matrix:
-#
+
+def new_cov_calculation(S: np.ndarray, cov_X: np.ndarray) -> tuple:
+    new_cov_X = S @ cov_X @ S.transpose()
+    diagonal = np.diagonal(new_cov_X)
+    return diagonal, new_cov_X
+
+
+def covariance_save(t: float, oscillators: dict, diagonal_non: np.ndarray,
+                    diagonal_int: np.ndarray, diagonal_old: np.ndarray):
+
+    for i in range(N):
+        if t == 0:
+            oscillators[f"{i}"] = {'Q': [(diagonal_non[i], diagonal_int[i], diagonal_old[i])]
+                                   , 'P': [(diagonal_non[i + N], diagonal_int[i + N], diagonal_old[i + N])]}
+
+        else:
+            oscillators[f"{i}"]['Q'].append((diagonal_non[i], diagonal_int[i], diagonal_old[i]))
+            oscillators[f"{i}"]['P'].append((diagonal_non[i + N], diagonal_int[i + N], diagonal_old[i + N]))
+
 
 # Applies the cos(Ωt) operation on each frequency
 def cosine(frequency: np.ndarray, t: float) -> np.ndarray:
     return np.cos(frequency * t)
 
 
+# Vectorizes the function for convenience
 cosine_vector = np.vectorize(cosine)
 
 
@@ -125,6 +129,38 @@ def sine(frequency: np.ndarray, t: float) -> np.ndarray:
 
 
 sine_vector = np.vectorize(sine)
+
+
+def matrix_A(graph, oscillator_frequencies: np.ndarray) -> np.ndarray:
+    laplacian = nx.laplacian_matrix(graph).toarray()
+    freq = np.diag(oscillator_frequencies) ** 2
+
+    return freq * 0.5 + laplacian * 0.5
+
+
+# Creates the network
+def network(plot=False):
+    # The graph containing N quantum mechanical harmonic oscillators
+    if N == 1:
+        G = nx.newman_watts_strogatz_graph(N, 1, 0.5)
+    else:
+        G = nx.newman_watts_strogatz_graph(N, 2, 0.2)
+
+    # Adding random weights
+    for u, v in G.edges():
+        G.edges[u, v]['weight'] = randint(1, 5)
+
+    # Construction of matrix A
+    A = matrix_A(G, frequencies)
+
+    # Draws the network
+    if plot and N > 1:
+        nx.draw_circular(G)
+
+    eigenvalues, K = np.linalg.eigh(A)
+    print(f"Diagonalized properly: {sanity_check_2(eigenvalues, K, A)}")
+
+    return G, A, eigenvalues, K
 
 
 # Creates the symplectic matrix for a specific moment in time
@@ -147,19 +183,8 @@ def symplectic(t: float, K: np.ndarray, kind: str) -> np.ndarray:
     return S
 
 
-def vector_multiplication(S: np.ndarray, vector: np.ndarray) -> np.ndarray:
-    return S @ vector
-
-
-def matrix_A(graph, frequencies: np.ndarray) -> np.ndarray:
-    laplacian = nx.laplacian_matrix(graph).toarray()
-    freq = np.diag(frequencies) ** 2
-
-    return freq * 0.5 + laplacian * 0.5
-
-
 # Checks whether the symplectic matrix is really symplectic
-def sanity_check_1(J: np.ndarray, S1: np.ndarray, S2: np.ndarray, S3: np.ndarray) -> bool:
+def sanity_check_1(S1: np.ndarray, S2: np.ndarray, S3: np.ndarray) -> bool:
     S_list = [S1, S2, S3]
     for S in S_list:
         new_J_matrix = S @ J @ np.transpose(S)
@@ -169,25 +194,95 @@ def sanity_check_1(J: np.ndarray, S1: np.ndarray, S2: np.ndarray, S3: np.ndarray
     return True
 
 
+# Checks if the Hamiltonian has been diagonalized properly
 def sanity_check_2(eigenvalues, K: np.ndarray, A: np.ndarray) -> bool:
     a = np.diag(eigenvalues)
     return np.allclose(a, K.transpose() @ A @ K)
 
 
-# For animation
-def draw(frame, Q, P):
-    plt.clf()
-    ax = plt.axes()
+# Definition of the Wigner function for one oscillator
+def wigner_function(cov, vector, state_vector) -> np.ndarray:
+    oe = vector - state_vector
+    wigner = 1 / (2 * np.pi * np.sqrt(np.linalg.det(cov))) *\
+        np.exp(-0.5 * oe @ np.linalg.inv(cov) @ oe.transpose())
 
-    ax.set_xlim([0, 1])
-    ax.set_ylim([0, 1])
-    ax.set_aspect('equal')
+    return wigner
 
-    # Piirtää kuulat oikeille paikoille, ensimmäinen kuula pysyy aina paikallaan keskellä kuvaa
-    plt.plot((0.5, Q[frame][0]), (0.5, P[frame][0]), 'ko', linestyle="-",
-             ms=12, lw=2.5)
-    plt.plot((Q[frame][0], Q[frame][1]), (P[frame][0], P[frame][1]), 'ko', linestyle="-",
-             ms=12, lw=2.5)
+
+np.vectorize(wigner_function)
+
+
+def wigner_operations(grid: np.ndarray, cov_X: np.ndarray, storage: list, state_vector: np.ndarray):
+    current_wigner_values = []
+
+    # Iterates through the grid that the Wigner function will be calculated in row by row
+    for row in grid:
+        wig_row = []
+
+        # Calculates the value of the Wigner function for every x and y coordinate pair in this row
+        for i in range(RESOLUTION):
+            wigner_value = wigner_function(cov_X, row[i], state_vector)
+            wig_row.append(wigner_value)
+
+        # The list containing all the Wigner function values for the specific row is added to a list
+        # that contains every rows wigner function values
+        current_wigner_values.append(np.array(wig_row))
+
+    # The list containing all calculated Wigner function values for this instance in time is added to storage
+    storage.append(np.array(current_wigner_values))
+
+
+# Visualizes the distribution of the Wigner function in a 2D contour plot
+def wigner_visualization(W, ax_range):
+    fig = plt.figure()
+    ax = plt.axes(xlabel="Q", ylabel="P")
+
+    plt.contourf(ax_range, ax_range, W, 100)
+    plt.colorbar()
+
+    fig.suptitle("Wigner function")
+
+    plt.show()
+
+
+# Draws the frames for animating the Wigner function
+def draw_frame(frame, W, ax_range) -> plt.Figure:
+    cont = plt.contourf(ax_range, ax_range, W[frame])
+    return cont
+
+
+# Runs animation
+def wigner_animation(W, ax_range, fig, save=False):
+    anim = ani.FuncAnimation(fig, draw_frame, frames=len(W), fargs=(W, ax_range), interval=200)
+
+    if save:
+        writer = PillowWriter(fps=30)
+        anim.save("HeiluriSmooth.gif", writer=writer)
+
+    plt.show()
+
+
+# Creates still images depending on whether one or more oscillators are simulated
+def visualisation(oscillators: dict, wigners: list, ax_range: np.ndarray):
+    # Plotting if multiple oscillators, also animating wigner function if only one oscillator
+
+    # If more than one oscillator simulated, plots the expectation values for Q and P with respect to time
+    # for every oscillator
+    if N != 1:
+        for key, value in oscillators.items():
+            plot_expectation(value["Q"], value["P"], TIMES, f"Expectation values for oscillator {key}")
+
+    # If only one oscillator is simulated, draws a contour plot of the initial state and
+    # also shows an animation of the time evolution of said state
+    else:
+        wigner_non = np.array(wigners)
+        wigner_visualization(wigner_non[0], ax_range)
+
+        fig = plt.figure()
+        ax = plt.axes(xlim=(MIN_X_AND_Y, MAX_X_AND_Y),
+                      ylim=(MIN_X_AND_Y, MAX_X_AND_Y), xlabel='Q', ylabel='P', aspect='equal')
+
+        wigner_animation(wigner_non, ax_range, fig, SAVE)
 
 
 # Plots the expectation values with respect to time
@@ -213,129 +308,12 @@ def plot_expectation(Q_values: list, P_values: list, times: np.ndarray, label: s
     plt.show()
 
 
-def wigner_visualization(W, ax_range):
-    fig = plt.figure()
-    ax = plt.axes(xlabel="Q", ylabel="P")
-
-    plt.contourf(ax_range, ax_range, W, 100)
-    plt.colorbar()
-
-    fig.suptitle("Wigner function")
-
-    plt.show()
-
-
-def wigner_plot_ani(frame, W, ax_range):
-    fig = plt.figure()
-    ax = plt.axes(xlim=(-5, 5), ylim=(-5, 5), xlabel='Q', ylabel='P')
-
-    cont = plt.contourf(ax_range, ax_range, W[frame])  # first image on screen
-    plt.colorbar()
-
-
-def animation(frame, W, ax_range) -> plt.Figure:
-    cont = plt.contourf(ax_range, ax_range, W[frame])
-    return cont
-
-
-# For animation
-def wigner_animation(W, ax_range, fig, save=False):
-    anim = ani.FuncAnimation(fig, animation, frames=len(W), fargs=(W, ax_range))
-    plt.show()
-
-    if save:
-        writer = PillowWriter(fps=30)
-        anim.save("Heiluri.gif", writer=writer)
-
-
-def wigner_function(cov, vector, initial_vector) -> np.ndarray:
-    oe = vector - initial_vector
-    wigner = 1 / (2 * np.pi * np.sqrt(np.linalg.det(cov))) *\
-        np.exp(-0.5 * oe @ np.linalg.inv(cov) @ np.transpose(oe))
-
-    return wigner
-
-
-np.vectorize(wigner_function)
-
-
-# Creates the network
-def network(N: int, plot=False):
-    # The graph containing N quantum mechanical harmonic oscillators
-    if N == 1:
-        G = nx.newman_watts_strogatz_graph(N, 1, 0.5)
-    else:
-        G = nx.newman_watts_strogatz_graph(N, 2, 0.5)
-
-    # Adding random weights
-    for u, v in G.edges():
-        G.edges[u, v]['weight'] = randint(1, 10)
-
-    # Construction of matrix A
-    A = matrix_A(G, frequencies)
-
-    # Draws the network
-    if plot and N > 1:
-        nx.draw_circular(G)
-
-    eigenvalues, K = np.linalg.eigh(A)
-    print(f"Diagonalized properly: {sanity_check_2(eigenvalues, K, A)}")
-
-    return G, A, eigenvalues, K
-
-
-def wigner_operations(grid: np.ndarray, RESOLUTION: int, cov_X: np.ndarray, storage: list, initial_vector: np.ndarray):
-    temp_wig_storage = []
-    for row in grid:
-        wig_row = []
-        for i in range(RESOLUTION):
-            wiggy = wigner_function(cov_X, row[i], initial_vector)
-            wig_row.append(wiggy)
-        temp_wig_storage.append(np.array(wig_row))
-    storage.append(np.array(temp_wig_storage))
-
-
-def new_cov_calculation(S: np.ndarray, cov_X: np.ndarray) -> tuple:
-    new_cov_X = S @ cov_X @ S.transpose()
-    diagonal = np.diagonal(new_cov_X)
-    return diagonal, new_cov_X
-
-
-def covariance_save(N: int, t: float, oscillators: dict, diagonal_non: np.ndarray,
-                    diagonal_int: np.ndarray, diagonal_old: np.ndarray):
-
-    for i in range(N):
-        if t == 0:
-            oscillators[f"{i}"] = {'Q': [(diagonal_non[i], diagonal_int[i], diagonal_old[i])]
-                                   , 'P': [(diagonal_non[i + N], diagonal_int[i + N], diagonal_old[i + N])]}
-
-        else:
-            oscillators[f"{i}"]['Q'].append((diagonal_non[i], diagonal_int[i], diagonal_old[i]))
-            oscillators[f"{i}"]['P'].append((diagonal_non[i + N], diagonal_int[i + N], diagonal_old[i + N]))
-
-
-def visualisation(N: int, oscillators: dict, wigners: list, ax_range: np.ndarray):
-    # Plotting if multiple oscillators, also animating wigner function if only one oscillator
-    if N != 1:
-        for key, value in oscillators.items():
-            plot_expectation(value["Q"], value["P"], TIMES, f"Expectation values for oscillator {key}")
-    else:
-        wigner_non = np.array(wigners)
-        wigner_visualization(wigner_non[0], ax_range)
-
-        fig = plt.figure()
-        ax = plt.axes(xlim=(MIN_X_AND_Y, MAX_X_AND_Y),
-                      ylim=(MIN_X_AND_Y, MAX_X_AND_Y), xlabel='x', ylabel='y', aspect='equal')
-
-        wigner_animation(wigner_non, ax_range, fig, SAVE)
-
-
 def main():
     # Starting the runtime -timer
     start = timeit.default_timer()
 
     # The network
-    G, A, eigenvalues, K = network(N, True)
+    G, A, eigenvalues, K = network(True)
 
     # Range for where Wigner function is calculated
     ax_range = np.linspace(MIN_X_AND_Y, MAX_X_AND_Y, RESOLUTION)
@@ -353,44 +331,53 @@ def main():
     oscillators = {}
 
     # Storage for the values of the Wigner function at each instance in time
-    wigners = []
+    wigner_values = []
+
+    # Vectorizes the function that calculates the expectation values for Q^2 and applies it to get the
+    # expectation values in an array form
+    E_Q2_vector = np.vectorize(expectation_value_Q2)
+    Q2_expectation = E_Q2_vector(frequencies)
+
+    # Does the same vectorization and calculations for P^2 as before for Q^2
+    E_P2_vector = np.vectorize(expectation_value_P2)
+    P2_expectation = E_P2_vector(frequencies)
 
     # Initial covariance matrix of the network
-    cov_X_initial = initial_cov_matrix(N, zero, frequencies)
+    cov_X_initial = initial_cov_matrix(zero_block, frequencies, Q2_expectation, P2_expectation)
 
     # Iterates the initial state in three different bases
     for t in TIMES:
-        if t == 0.0:
-            print("JOu")
         # The corresponding symplectic matrix S in the non-interacting base for the value of t
         S_non = symplectic(t, K, "non_interacting")
         diagonal_non, new_cov_X_non = new_cov_calculation(S_non, cov_X_initial)
+
+        # If only one oscillator is simulated, th corresponding wigner function is calculated
         if N == 1:
-            print(new_cov_X_non)
-            wigner_operations(grid, RESOLUTION, new_cov_X_non, wigners, initial_state_vector)
+            state_vector = S_non @ initial_state_vector
+            wigner_operations(grid, new_cov_X_non, wigner_values, state_vector)
 
         # S in the interacting base
         S_int = symplectic(t, K, "interacting")
         diagonal_int, new_cov_X_int = new_cov_calculation(S_int, cov_X_initial)
 
         # S in the old base
-        X = np.block([[K.transpose(), zero],
-                      [zero, K.transpose()]])
+        X = np.block([[K.transpose(), zero_block],
+                      [zero_block, K.transpose()]])
         S_old = X.transpose() @ S_non @ X
         diagonal_old, new_cov_X_old = new_cov_calculation(S_old, cov_X_initial)
 
         # Saves the three current covariance matrices
-        covariance_save(N, t, oscillators, diagonal_non, diagonal_int, diagonal_old)
+        covariance_save(t, oscillators, diagonal_non, diagonal_int, diagonal_old)
 
         # A check is done that all the S matrices are still symplectic
-        if not sanity_check_1(J, S_non, S_int, S_old):
+        if not sanity_check_1(S_non, S_int, S_old):
             print("The matrix S is not symplectic anymore.")
             break
 
     stop = timeit.default_timer()
     print(f"\nRuntime: {(stop - start):.4f} s.")
 
-    visualisation(N, oscillators, wigners, ax_range)
+    visualisation(oscillators, wigner_values, ax_range)
 
 
 if __name__ == '__main__':
