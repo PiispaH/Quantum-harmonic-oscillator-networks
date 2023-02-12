@@ -1,14 +1,19 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as ani
+import colormap as cm
 import timeit
 import networkx as nx
-from random import randint
+# from random import randint
 from json import load
 from matplotlib.animation import PillowWriter
-#import matplotlib;matplotlib.use("TkAgg")
+# import matplotlib;matplotlib.use("TkAgg")
 
-# Reading the config file and setting the constants values
+"""                                                              """
+"""          Setting the constants and parameter values          """
+"""                                                              """
+
+# Reading the config file
 with open("config.json") as file:
     constants = load(file)
 
@@ -28,44 +33,29 @@ TIME_STEP = constants["TIME_STEP"]                      # Time step of simulatio
 SAVE = constants["SAVE"]                                # Whether to save the animations and plots or not
 STEPS = int(DURATION / TIME_STEP)                       # How many steps in whole simulation
 TIMES = np.linspace(0, STEPS, STEPS + 1) * TIME_STEP    # Instances of time, where values are calculated
-
-# The frequencies of the oscillators
-FREQUENCIES = np.ones(N)
-# frequencies = np.array([2.0])
-
-####
-#SQUEEZING_PARAMETERS = np.zeros(200)
-#SQUEEZING_PARAMETERS[0] = 0.2
-#SQUEEZING_ANGLES = np.zeros(200)
-#INITIAL_STATE_VECTOR = np.zeros(400)
-####
-
-#print("Squeezing parameters")
-#print(SQUEEZING_PARAMETERS)
-#print("\nSqueezing angles")
-#print(SQUEEZING_ANGLES)
-
-#print("\nvector of first moments")
-#print(INITIAL_STATE_VECTOR)
+FREQUENCIES = np.ones(N)                                # The frequencies of the oscillators
 
 # Defining a NxN zero matrix to help construct the other matrices
 zero_block = np.zeros((N, N))
 
-# Defining the J matrix
+# Defining the symplectic J matrix
 J = np.block([[zero_block, np.identity(N)],
               [-1 * np.identity(N), zero_block]])
 
-
-def get_excitations(cov: np.ndarray, first_moments: np.ndarray) -> float:
-    """
-    Calculates the amount of excitations/photons in the system
-
-    :param cov: covariance matrix
-    :param first_moments: Vector containing expectation values of the operators
-    :return: total number of excitations/photons
-    """
-    excitations = 0.5 * (np.trace(cov) + sum(first_moments ** 2) - 1)
-    return excitations
+# For testing with many oscillators
+second_neighbor = False
+chain = True
+if N == 0:
+    N = 10
+    INITIAL_STATE_VECTOR = np.concatenate((1 * np.ones(0), np.zeros(2 * N - 0)))
+    SQUEEZING_PARAMETERS = np.concatenate((np.zeros(1), -1 * np.ones(N - 1)))
+    # SQUEEZING_PARAMETERS = np.concatenate((0.2 * np.ones(1), np.zeros(N - 1)))
+    # SQUEEZING_PARAMETERS = -1 * np.ones(N)
+    SQUEEZING_ANGLES = np.zeros(N)
+    FREQUENCIES = np.ones(N)
+    zero_block = np.zeros((N, N))
+    J = np.block([[zero_block, np.identity(N)],
+                  [-1 * np.identity(N), zero_block]])
 
 
 def thermal_excitations(cov: np.ndarray) -> float:
@@ -79,93 +69,31 @@ def thermal_excitations(cov: np.ndarray) -> float:
     return th_excitations
 
 
-# Calculates the expectation value of the operators Q_i squared
-def expectation_value_Q2(frequency: np.ndarray) -> np.ndarray:
+def initial_cov_matrix(freqs: np.ndarray, squeezing_parameters: np.ndarray,
+                       phis: np.ndarray) -> np.ndarray:
     """
-        Args: frequency: List of the oscillators frequencies
-
-        Return: array of
-    """
-
-    if T == 0:
-        values = 0.5 / frequency
-
-    else:
-        values = (1 / (np.exp(frequency / T) - 1) + 0.5) / frequency
-
-    return values
-
-
-# Calculates the expectation value of the operators P_i squared
-def expectation_value_P2(frequency: np.ndarray) -> np.ndarray:
-    if T == 0:
-        value = 0.5 * frequency
-
-    else:
-        value = (1 / (np.exp(frequency / T) - 1) + 0.5) * frequency
-
-    return value
-
-
-def initial_cov_matrix(freqs: np.ndarray, Q2_expectation: np.ndarray, P2_expectation: np.ndarray,
-                       squeezing_parameters: np.ndarray, phis: np.ndarray) -> np.ndarray:
-    """
-    Calculates the initial covariance matrix of the whole system
+    Calculates the covariance matrix of the whole network at t=0.
 
     :param freqs: frequencies
-    :param Q2_expectation: Expectation values of the squares of the Q operators
-    :param P2_expectation: Expectation values of the squares of the P operators
-    :param sq_r: The squeezing parameters
-    :param sq_phi: The squeezing angles
-    :return: covariance matrix
+    :param squeezing_parameters: Contains all the squeezing parameters of the network at t=0
+    :param phis: Contains all the squeezing angles of the network at t=0
+    :return cov_X_initial: Covariance matrix of the initial state
     """
 
     # Creates a template for the covariance matrix
     cov_X_initial = np.zeros((2 * N, 2 * N))
 
-    # Oikein ???
-
-    """
-    Q2_multipliers_func = np.vectorize(lambda r, p, f: f**2 * np.sin(p)**2 *
-                                       np.sinh(r)**2 + (np.cosh(r) + np.cos(p) * np.sinh(r))**2)
-
-    Q2_multipliers = Q2_multipliers_func(sq_r, sq_phi, freqs)
-
-    P2_multipliers_func = np.vectorize(lambda r, p, f: (1 / f**2) * np.sin(p)**2 *
-                                       np.sinh(r)**2 + (np.cosh(r) - np.cos(p) * np.sinh(r))**2)
-    P2_multipliers = P2_multipliers_func(sq_r, sq_phi, freqs)
-
-    cov_X_initial += np.diag(np.concatenate((Q2_expectation * Q2_multipliers, P2_expectation * P2_multipliers)))
-    """
-
-    print(cov_X_initial)
-
     # Checking the indices of vacuum states
     vacuum_indices = np.where(SQUEEZING_PARAMETERS == -1)[0]
-    print(f"\nVacuum states {vacuum_indices}")
 
     # Checks which oscillators have squeezed states and which don't have
     squeezed_indices = np.where(SQUEEZING_PARAMETERS > 0)[0]
-    print(f"Indices of squeezed oscillators: {squeezed_indices}")
-
-    # Indices of thermal states
-    thermal_indices = np.where(SQUEEZING_PARAMETERS == 0)[0]
-    print(f"Thermal_indices: {thermal_indices}")
-
-    # Calculating the initial variances for every oscillator:
-
-    # Calculating the thermal expectation value
-    # If vacuum state, use limit for thermal expectation at T=0
-    thermal_expectations = []
 
     # Iterates through each state
     for i in range(N):
-        print(phis)
         phi = phis[i]
         r = squeezing_parameters[i]
         freq = freqs[i]
-
-        print(f"Osc {i}: phi={phi}, r={r}, freq={freq}")
 
         # Defining the symplectic squeezing matrix
         symp_squeezing_matrix = np.zeros((2, 2))
@@ -173,65 +101,53 @@ def initial_cov_matrix(freqs: np.ndarray, Q2_expectation: np.ndarray, P2_expecta
         symp_squeezing_matrix[1][1] = np.cosh(r) - np.sinh(r) * np.cos(phi)
         symp_squeezing_matrix[1][0] = freq * np.sinh(r) * np.sin(phi)
         symp_squeezing_matrix[0][1] = (1 / freq) * np.sinh(r) * np.sin(phi)
-        print(symp_squeezing_matrix)
 
-        # If simulating a vacuum state or a squeezed vacuum state use hand calculated limit for the general
+        # If simulating a vacuum state or a squeezed state use hand calculated limit for the general
         # case of thermal states. Else use the general thermal state version with temperature T
-        if T == 0 or i in vacuum_indices:
+        if T == 0 or i in np.concatenate((vacuum_indices, squeezed_indices)):
             thermal_expectation_term = 0.5
         else:
             thermal_expectation_term = 1 / (np.exp(freq / T) - 1) + 0.5
 
-        print("Thermal expectation value:", thermal_expectation_term)
         cov_osc_i = np.diag(np.array([thermal_expectation_term / freq, thermal_expectation_term * freq]))
-
-        # cov_X_initial[i][i + N] = thermal_expectation * \
-                                # np.sinh(2 * SQUEEZING_PARAMETERS[i]) * np.sin(SQUEEZING_ANGLES[i])
-
-        #cov_X_initial[i][i + N] = thermal_expectation * np.sin(phi) * np.sinh(r) *\
-                                  #((freqs[i] + 1 / freqs[i]) * np.cosh(r) -
-                                   #(freqs[i] - 1 / freqs[i]) * np.cos(phi) * np.sinh(r))
-
-        #cov_X_initial[i + N][i] = cov_X_initial[i][i + N]
 
         # Perform squeezing if the state is squeezed
         if i in squeezed_indices:
-            cov_osc_i = symp_squeezing_matrix.transpose() @ cov_osc_i @ symp_squeezing_matrix
+            cov_osc_i = symp_squeezing_matrix @ cov_osc_i @ symp_squeezing_matrix.transpose()
 
         cov_X_initial[i][i] = cov_osc_i[0][0]
         cov_X_initial[i + N][i + N] = cov_osc_i[1][1]
         cov_X_initial[i + N][i] = cov_osc_i[1][0]
         cov_X_initial[i][i + N] = cov_osc_i[0][1]
 
-        print("Initial cov")
-        print(cov_osc_i)
-
-    print("Combined initial covariance matrix:")
-    print(cov_X_initial)
-    print(f"Frequencies: {freqs}")
-
     return cov_X_initial
 
 
-def new_cov_calculation(S: np.ndarray, cov_X: np.ndarray, type: str) -> tuple:
+def new_cov_calculation(S: np.ndarray, cov_X: np.ndarray):
+    """
+    Calculates the new covariance matrix at moment t in time.
+
+    :param S: Symplectic matrix calculated at moment t in time
+    :param cov_X: Initial state covariance matrix
+    :return: diagonal: the variances as an vector, new_cov_X: the new covariance matrix
+    that describes the network at moment t as an array.
+    :rtype: (np.ndarray, np.ndarray)
+    """
+
     new_cov_X = S @ cov_X @ S.transpose()
     diagonal = np.diagonal(new_cov_X)
     return diagonal, new_cov_X
 
 
-def covariance_matrix_save(t: float, covariance: list, covariance_matrix: np.ndarray) -> None:
-    covariance.append((t, covariance_matrix))
-
-
 def save_into_dict(t: float, storage: dict, non: np.ndarray,
-                   int: np.ndarray, old: np.ndarray) -> None:
+                   inte: np.ndarray, old: np.ndarray) -> None:
     """
-    Saves either the variances or expectation values into a corresponding dict
+    Saves the passed values into a corresponding dict
 
     :param t: Moment in time
     :param storage: The dict into where the data is saved
     :param non: The value in non interacting base
-    :param int: The value in interacting base
+    :param inte: The value in interacting base
     :param old: The value in the old base
     :return: None
     """
@@ -239,17 +155,24 @@ def save_into_dict(t: float, storage: dict, non: np.ndarray,
     for i in range(N):
         # Need to initialize the lists and dicts if t=0
         if t == 0:
-            storage[f"{i}"] = {'Q': [(non[i], int[i], old[i])],
-                                   'P': [(non[i + N], int[i + N], old[i + N])]}
+            storage[f"{i}"] = {'Q': [(non[i], inte[i], old[i])],
+                               'P': [(non[i + N], inte[i + N], old[i + N])]}
 
         # If dicts and lists are already there, just append the new values to the lists
         else:
-            storage[f"{i}"]['Q'].append((non[i], int[i], old[i]))
-            storage[f"{i}"]['P'].append((non[i + N], int[i + N], old[i + N]))
+            storage[f"{i}"]['Q'].append((non[i], inte[i], old[i]))
+            storage[f"{i}"]['P'].append((non[i + N], inte[i + N], old[i + N]))
 
 
-# Applies the cos(Ωt) operation on each frequency
 def cosine(frequency: np.ndarray, t: float) -> np.ndarray:
+    """
+    Computes cos(Ωt) or cos(ωt) depending on which frequencies are
+    used.
+
+    :param frequency: Frequencies of the oscillators
+    :param t: Time
+    :return: Cosines of the frequencies multiplied by t
+    """
     return np.cos(frequency * t)
 
 
@@ -257,79 +180,117 @@ def cosine(frequency: np.ndarray, t: float) -> np.ndarray:
 cosine_vector = np.vectorize(cosine)
 
 
-# Applies the sin(Ωt) operation on each frequency
 def sine(frequency: np.ndarray, t: float) -> np.ndarray:
+    """
+    Computes sin(Ωt) or sin(ωt) depending on which frequencies are
+    used.
+    :param frequency: Frequencies of the oscillators
+    :param t: Time
+    :return: Cosines of the frequencies multiplied by t
+    """
     return np.sin(frequency * t)
 
 
+# Vectorizes the function for convenience
 sine_vector = np.vectorize(sine)
 
 
-# Creates the network
-def network_initialize(plot=False):
-    # The graph containing N quantum mechanical harmonic oscillators
+def network_initialize(plot=False) -> nx.Graph:
+    """
+    Creates a network of N nodes with specified links and weights
+
+    :param plot: Whether to plot the graph or not
+    :return: A networkx Graph -object
+    """
+
+    # If only one oscillator is simulated create a graph
+    # with only one node and no links
     if N == 1:
-        G = nx.newman_watts_strogatz_graph(N, 1, 0.5)
+        G = nx.newman_watts_strogatz_graph(N, 1, 0.0)
+
+    # If more than one oscillator are simulated, first create
+    # a ring of nodes each with one edge to either side
     else:
         G = nx.newman_watts_strogatz_graph(N, 2, 0.0)
 
-    # Adding random weights
+    # Each edge has a weight of 1
     for u, v in G.edges():
-        # G.edges[u, v]['weight'] = randint(1, 5)
-        # print(u, v)
         G.edges[u, v]['weight'] = 1
 
-    ######
-    G.edges[0, 9]['weight'] = 0
-    ######
+    # If every node is also connected to its 2nd neighbours
+    # create new edges with specified weights
+    if second_neighbor:
+        second_neighbors = []
+        for u, v in G.edges():
+            if u < N - 2:
+                second_neighbors.append((u, u + 2))
+        G.add_edges_from(second_neighbors, weight=0.02)
 
-    # Draws the network
+    # If network is a chain, remove the "last" edge
+    if N > 1 and chain:
+        G.remove_edge(0, N - 1)
+
+    # Draws the network with edge weights and node labels in a circle
     if plot and N > 1:
         nx.draw_networkx_labels(G, pos=nx.circular_layout(G))
         nx.draw_circular(G)
         labels = nx.get_edge_attributes(G, 'weight')
-        nx.draw_networkx_edge_labels(G, pos=nx.circular_layout(G), edge_labels=labels)
+        nx.draw_networkx_edge_labels(G, pos=nx.circular_layout(G),
+                                     edge_labels=labels)
 
     return G
 
 
-def matrix_K(G):
-    # Construction of matrix A:
+def matrix_K(G: nx.Graph, frequencies: np.ndarray):
+    """
+    Calculates the matrix A that describes the network of quantum mechanical harmonic oscillators.
+
+    :param G: The network
+    :return: K: matrix of eigenvectors of matrix A, eigenfrequencies: vector of eigenfrequencies
+    :rtype: (np.ndarray, np.ndarray)
+    """
 
     # Adjacency matrix
     V = nx.adjacency_matrix(G).toarray()
 
     # Degree matrix
     D = np.diag([val for (node, val) in sorted(G.degree(), key=lambda pair: pair[0])])
-    # print(V)
-    # print(D)
 
     # Laplacian matrix
     L = D - V
-    print("L")
+    print("\nL:")
     print(L)
 
-    # Finally, matrix A
-    print(f"Frequencies for A: {FREQUENCIES}")
-    A = np.diag(FREQUENCIES ** 2) * 0.5 + 0.5 * L
-    print("A matriisi:")
+    # Matrix A
+    A = np.diag(frequencies ** 2) * 0.5 + 0.5 * L
+    print("\nMatrix A:")
     print(A)
-    print()
 
+    # Calculates the matrix K and eigenfrequencies
     eigenvalues, K = np.linalg.eigh(A)
-    print("eigenvalues", eigenvalues)
     eigenfrequencies = np.sqrt(eigenvalues * 2)
 
-    print(sanity_check_2(eigenvalues, K, A))
+    print("\nMatrix K:")
+    print(K)
 
-    if not sanity_check_2(eigenvalues, K, A):
-        raise Exception("Diagonalization of matrix A failed")
+    # A check is done to see that the diagonalizing has been done properly
+    if not sanity_check_2(eigenvalues, A, K):
+        raise Exception("Diagonalizing of matrix A failed")
 
     return K, eigenfrequencies
 
 
 # Creates the symplectic matrix for a specific moment in time
 def symplectic(t: float, K: np.ndarray, freqs: np.ndarray, base: str) -> np.ndarray:
+    """
+    Calculates the symplectic matrix in either of three bases, noninteracting, interacting or old.
+
+    :param t: Moment in time
+    :param K: Eigenvectors of matrix A in a matrix form
+    :param freqs: Oscillators frequencies
+    :param base: In what base the symplectic matrix is calculated in
+    :return: S: the symplectic matrix
+    """
 
     # Calculates the NxN diagonal matrices consisting of sin(Ωt) and cos(Ωt)
     block_cos = np.diag(cosine_vector(freqs, t))
@@ -364,15 +325,23 @@ def symplectic(t: float, K: np.ndarray, freqs: np.ndarray, base: str) -> np.ndar
                       [-freq_diag * block_sin, block_cos]])
         S = nonint_to_int.transpose() @ S @ nonint_to_int
 
-    # If the given base is not possible
+    # Raise an ValueError if the given base is not one of th three possible
     else:
         raise ValueError("Function symplectic() argument 'kind' invalid")
 
     return S
 
 
-# Checks whether the symplectic matrix is really symplectic
 def sanity_check_1(S1: np.ndarray, S2: np.ndarray, S3: np.ndarray) -> bool:
+    """
+    Checks that all of the calculated symplectic matrices are indeed still symplectic.
+    Raises an ValueError if at least one of the matrices is not symplectic.
+
+    :param S1: Symplectic matrix in base 1
+    :param S2: Symplectic matrix in base 2
+    :param S3: Symplectic matrix in base 3
+    :return: True if all of the matrices are symplectic
+    """
     new_J_matrix = S1 @ J @ np.transpose(S1)
     if not np.allclose(J, new_J_matrix):
         raise ValueError(f"The matrix non is not symplectic anymore")
@@ -386,25 +355,52 @@ def sanity_check_1(S1: np.ndarray, S2: np.ndarray, S3: np.ndarray) -> bool:
     return True
 
 
-# Checks if the Hamiltonian has been diagonalized properly
-def sanity_check_2(eigenvalues, K: np.ndarray, A: np.ndarray) -> bool:
+def sanity_check_2(eigenvalues, A: np.ndarray, K: np.ndarray) -> bool:
+    """
+    Checks if the Hamiltonian has been diagonalized properly
+
+    :param eigenvalues:
+    :param A: Matrix describing the network of oscillators
+    :param K: Eigenvectors of A in a matrix form
+    :return: True if diagonalized properly
+    """
     a = np.diag(eigenvalues)
     return np.allclose(a, K.transpose() @ A @ K)
 
 
 # Definition of the Wigner function for one oscillator
-def wigner_function(cov, vector, state_vector) -> np.ndarray:
-    oe = (vector - state_vector)
+def wigner_function(cov: np.ndarray, vector: np.ndarray, exp_vector: np.ndarray) -> np.ndarray:
+    """
+    Calculates the value of the Wigner function in a given point.
+
+    :param cov: Covariance matrix of the state
+    :param vector: Where the Wigner function will be evaluated
+    :param state_vector: Vector of the operators expectation values
+    :return: wigner: value of the WIgner function
+    """
+
+    expectations = (vector - exp_vector)
     wigner = 1 / (2 * np.pi * np.sqrt(np.linalg.det(cov))) *\
-        np.exp(-0.5 * oe @ np.linalg.inv(cov) @ oe)
+        np.exp(-0.5 * expectations @ np.linalg.inv(cov) @ expectations)
 
     return wigner
 
 
+# Vectorizing the function for convenience
 np.vectorize(wigner_function)
 
 
-def wigner_operations(grid: np.ndarray, cov_X: np.ndarray, storage: list, state_vector: np.ndarray):
+def wigner_operations(grid: np.ndarray, cov_X: np.ndarray, storage: list, state_vector: np.ndarray) -> None:
+    """
+    Calculates all the values of the Wigner function in a given grid at a single point in time.
+
+    :param grid: A square grid with a given resolution where the Wigner function will be evaluated
+    :param cov_X: Covariance matrix of the state
+    :param storage: Where the wigner functions values will be stored
+    :param state_vector: Vector of the expectation values of the oscillator
+    """
+
+    # Where the current moments values will be stored in
     current_wigner_values = []
 
     # Iterates through the grid that the Wigner function will be calculated in row by row
@@ -424,8 +420,8 @@ def wigner_operations(grid: np.ndarray, cov_X: np.ndarray, storage: list, state_
     storage.append(np.array(current_wigner_values))
 
 
-# Visualizes the distribution of the Wigner function in a 2D contour plot
-def wigner_visualization(W, ax_range):
+def wigner_visualization(W: np.ndarray, ax_range: np.ndarray) -> None:
+    """Visualizes the distribution of the Wigner function in a 2D contour plot"""
     fig = plt.figure()
     ax = plt.axes(xlabel="Q", ylabel="P", aspect='equal')
 
@@ -438,13 +434,14 @@ def wigner_visualization(W, ax_range):
 
 
 # Draws the frames for animating the Wigner function
-def draw_frame(frame, W, ax_range) -> plt.Figure:
+def draw_frame(frame: int, W: np.ndarray, ax_range: np.ndarray) -> plt.Figure:
+    """Draws a single frame for the animation of the Wigner function"""
     cont = plt.contourf(ax_range, ax_range, W[frame])
     return cont
 
 
-# Runs animation
-def wigner_animation(W, ax_range, fig, save=False):
+def wigner_animation(W: np.ndarray, ax_range: np.ndarray, fig: plt.Figure, save=False) -> None:
+    """Animates the Wigner function and saves the animation if save=True"""
     anim = ani.FuncAnimation(fig, draw_frame, frames=len(W), fargs=(W, ax_range), interval=200)
 
     if save:
@@ -455,47 +452,81 @@ def wigner_animation(W, ax_range, fig, save=False):
 
 
 # Creates still images depending on whether one or more oscillators are simulated
-def visualisation(oscillators_var: dict, oscillators_exp: dict, wigners: list, ax_range: np.ndarray):
+def visualisation(oscillators_var: dict, oscillators_exp: dict, oscillators_sq: dict, oscillators_phi: dict,
+                  oscillators_exci: dict, oscillators_therm: dict, wigners: list, ax_range: np.ndarray) -> None:
+    """
+    Plots the variances and expectation values. Also makes matrix plots of the squeezing parameters and angles,
+    excitations and thermal expectation values.
+
+    :param oscillators_var: Dictionary of every oscillator's variances are saved
+    :param oscillators_exp: Dictionary of every oscillator's operators expectation values are saved
+    :param oscillators_sq: Dictionary of every oscillator's squeezing parameters are saved
+    :param oscillators_phi: Dictionary of every oscillator's squeezing angles are saved
+    :param oscillators_exci: Dictionary of every oscillator's excitations are saved
+    :param oscillators_therm: Dictionary of every oscillator's thermal expectation values are saved
+    :param wigners: List that contains all calculated Wigner functions values at different moments in time
+    :param ax_range: Ranges for the plot axis
+    """
     # Plotting if multiple oscillators, also animating wigner function if only one oscillator
 
-    # If more than one oscillator simulated, plots the variance of Q and P with respect to time
+    # If form one to ten oscillators are simulated, plots the variance of Q and P with respect to time
     # for every oscillator
+    if N <= 10:
+        for key, value in oscillators_var.items():
+            plot_graphs(value["Q"], value["P"], TIMES, f"Variances for oscillator {key}")
 
-    for key, value in oscillators_var.items():
-        plot_graphs(value["Q"], value["P"], TIMES, f"Variances for oscillator {key}")
+        for key, value in oscillators_exp.items():
+            if int(key) % 20 == 0:
+                plot_graphs(value["Q"], value["P"], TIMES, f"Expectation values for oscillator {key}")
 
-    for key, value in oscillators_exp.items():
-        plot_graphs(value["Q"], value["P"], TIMES, f"Expectation values for oscillator {key}")
-
-        # Testing only
-        # plot_expectations(value["Exp"]['Q'], value["Exp"]['P'], TIMES, f"Expectation values for oscillator {key}")
+    # Separate contour plots
+    plot_matrix(oscillators_sq, 'Squeezing parameter r', 'r')
+    plot_matrix(oscillators_phi, 'Squeezing angle φ', 'φ')
+    plot_matrix(oscillators_exci, 'Expectation value of excitations', 'Excitations')
+    plot_matrix(oscillators_therm, 'Thermal excitations', 'Excitations')
 
     # If only one oscillator is simulated, draws a contour plot of the initial state and
     # also shows an animation of the time evolution of said state
     if N == 1:
         wigner_non = np.array(wigners)
+
+        # Plots the WIgner function at t=0
         wigner_visualization(wigner_non[0], ax_range)
 
         fig = plt.figure()
         ax = plt.axes(xlim=(MIN_X_AND_Y, MAX_X_AND_Y),
                       ylim=(MIN_X_AND_Y, MAX_X_AND_Y), xlabel='Q', ylabel='P', aspect='equal')
 
+        # Shows an animation of the Wigner functions time evolution
         wigner_animation(wigner_non, ax_range, fig, SAVE)
 
 
-# Plots the expectation values with respect to time
-def plot_graphs(Q_values: list, P_values: list, times: np.ndarray, label: str):
+def plot_graphs(Q_values: list, P_values: list, times: np.ndarray, label: str) -> None:
+    """
+    Plots values with respect to time.
+
+    :param Q_values: Expectation values or variances for Q
+    :param P_values: Expectation values or variances for Q
+    :param times: Values of time when the values were calculated
+    :param label: What the plot will be named
+    """
+
+    # Creates three plots in one picture
     fig, (ax1, ax2, ax3) = plt.subplots(3)
+
+    # Plotting the values in the noninteracting base
     ax1.plot(times, [i[0] for i in Q_values], label="Q")
     ax1.plot(times, [i[0] for i in P_values], label="P")
     ax1.set_title("Noninteracting S, " + label)
     ax1.legend()
 
+    # Plotting the values in the interacting base
     ax2.plot(times, [i[1] for i in Q_values], label="Q")
     ax2.plot(times, [i[1] for i in P_values], label="P")
     ax2.set_title("interacting S, " + label)
     ax2.legend()
 
+    # Plotting the values in the old base
     ax3.plot(times, [i[2] for i in Q_values], label="Q")
     ax3.plot(times, [i[2] for i in P_values], label="P")
     ax3.set_title("Old S, " + label)
@@ -506,216 +537,185 @@ def plot_graphs(Q_values: list, P_values: list, times: np.ndarray, label: str):
     plt.show()
 
 
-def plot_expectations(Q_values: list, P_values: list, times: np.ndarray, label: str):
+def plot_single_parameter(parameter: np.ndarray, times: np.ndarray, label: str) -> None:
+    """Plots the evolution of a single parameter (r, φ, ⟨n⟩ or n_th) for a single oscillator"""
     fig = plt.figure()
-    ax = plt.axes(xlabel="Q", ylabel="P", aspect='equal')
+    ax = plt.axes(xlabel="t", ylabel="r", xlim=(0, times[-1]))
 
-
-    ax.plot(times, [i[0] for i in Q_values], label="Q")
-    ax.plot(times, [i[0] for i in P_values], label="P")
-    ax.set_title("Noninteracting S")
+    ax.plot(times, parameter, label="r")
+    ax.set_title(f"Squeeze for osc {label}")
     ax.legend()
+    plt.show()
 
 
-def photon_expectation_value(cov: np.ndarray, first_moments: np.ndarray) -> list:
+def plot_matrix(data: dict, label: str, color_label: str) -> None:
+    """Plots a contour plot of a single matrix variable for a single oscillator"""
+    matrix = np.array(list(data.values()))
+
+    fig, ax = plt.subplots()
+    ax.set_xlabel("Time [t]")
+    ax.set_ylabel("Oscillator")
+    # Possible cmaps: ocean, RdBu, gnuplot, inferno, cm.
+    c = ax.pcolormesh(matrix, cmap=cm.blue_yellow, vmin=0, vmax=np.max(matrix))
+    ax.set_title(label)
+
+    fig.colorbar(c, ax=ax, label=color_label)
+
+    # Setting x ticks so that there are five evenly spaced ticks with the correct time
+    x = [DURATION * i / (TIME_STEP * 4) for i in range(5)]
+    labels = [DURATION * i / 4 for i in range(5)]
+    plt.xticks(x, labels)
+
+    plt.show()
+
+
+def save_parameters(t: float, cov: np.ndarray, sq_dict: dict, phi_dict: dict, exci_dict: dict, therm_dict: dict,
+                    frequencies: np.ndarray, first_moments: np.ndarray) -> None:
+    """
+    Saves all of the the squeezing parameters and -angles, excitations and thermal expectation values into dictionaries.
+
+    :param t: Moment in tiime
+    :param cov: Covariance matrix of the whole network
+    :param sq_dict: Where the squeezing parameters will be saved
+    :param phi_dict: Where the squeezing angles will be saved
+    :param exci_dict: Where the operator expectation values will be saved
+    :param therm_dict: Where the thermal expectation values will be saved
+    :param frequencies: Oscillators frequencies that are used in calculations
+    :param first_moments: Vector of the operators expectation values
+    :return: None
     """
 
-    :param cov:np.ndarray Covariance matrix of the state
-    :param first_moments:  Vector of first moments
-    :return:
-    """
-    photon_exp = 0.5 * (np.trace(cov) + sum(first_moments ** 2) - 1)
-
-    return photon_exp
-
-
-def get_squeezing_parameters(cov: np.ndarray) -> float:
-    """
-
-    :param cov: Covariance matrix of the system
-    :return: float: The squeezing parameter of the states
-    """
-
-    squeeze_r = []
-
+    # Iterates through every oscillator
     for i in range(N):
-        block_matrix = np.array([[cov[i][i], cov[i][N + i]], [cov[N + i][i], cov[i + N][i + N]]])
-        # print("Squeeze")
-        # print(block_matrix)
+        freq = frequencies[i]
 
-        # Joku muunnos tarvitaan vielä...
-        n = np.sqrt(np.linalg.det(block_matrix)) - 0.5
-        # Varmaan tähänkin
+        # Picks up the covariance matrix describing the particular oscillator
+        block_matrix = np.array([[cov[i][i], cov[i][N + i]], [cov[N + i][i], cov[i + N][i + N]]])
+
+        # Calculates the number of thermal excitations
+        n = thermal_excitations(block_matrix)
+
+        # Calculates the average number of photons in each state
+        first_moments_i = np.array([first_moments[i], first_moments[i + N]])
+        excitations = get_excitations(block_matrix, first_moments_i, freq)
 
         # Due to systematic calculation errors, the argument in cosh() is sometimes
-        # like 0.99999999999, so let's round this up to 1
-        argument = max(np.trace(block_matrix) / (1 + 2 * n), 1)
+        # insignificantly under 1, so let's round this up to 1
+        argument = max((block_matrix[0][0] * freq + block_matrix[1][1] / freq) / (1 + 2 * n), 1)
 
-        squeeze_r.append((i, 0.5 * np.arccosh(argument)))
+        # If first calculated value, create a list, else just add to the existing list
+        if t == 0:
+            # Calculated value of the squeezing parameter r
+            r = 0.5 * np.arccosh(argument)
 
-    return squeeze_r
+            # Calculate squeezing angle with r and off
+            if r != 0:
+                phi_dict[f"{i}"] = [block_matrix[0][1] / (np.sinh(2 * r) * (1 + 2 * n))]
+            else:
+                phi_dict[f"{i}"] = [0]
+
+            therm_dict[f"{i}"] = [n]
+            sq_dict[f"{i}"] = [r]
+            exci_dict[f"{i}"] = [excitations]
+
+        else:
+            r = 0.5 * np.arccosh(argument)
+
+            if r != 0:
+                phi_dict[f"{i}"].append(block_matrix[0][1] / (np.sinh(2 * r) * (1 + 2 * n)))
+            else:
+                phi_dict[f"{i}"].append(0)
+
+            therm_dict[f"{i}"].append(n)
+            sq_dict[f"{i}"].append(r)
+            exci_dict[f"{i}"].append(excitations)
 
 
-def thermal_excitation():
-    pass
+def get_excitations(cov: np.ndarray, first_moments: np.ndarray, freq: float) -> float:
+    """
+    Calculates the amount of excitations/photons in the state
+
+    :param cov: covariance matrix of the state
+    :param first_moments: Vector containing expectation values of the operator
+    :param freq: frequency of the oscillator
+    :return: total number of excitations/photons
+    """
+    excitations = 0.5 * (cov[0][0] * freq + cov[1][1] / freq + sum(first_moments ** 2) - 1)
+    return excitations
 
 
 def main():
+    """Main program"""
     # Starting the runtime -timer
     start = timeit.default_timer()
 
     # The network
     G = network_initialize(True)
-    K, eigenfrequencies = matrix_K(G)
-    print("K matriisi")
-    print(K)
-    # print("Matrix K:")
-    # print(K)
+    K, eigenfrequencies = matrix_K(G, FREQUENCIES)
 
     # Range for where Wigner function is calculated
     ax_range = np.linspace(MIN_X_AND_Y, MAX_X_AND_Y, RESOLUTION)
 
-    # Creates a grid for the evaluation of the wigner function
-    grid = []
-    for i in ax_range:
-        row = []
-        for j in ax_range:
-            row.append((j, i))
-        grid.append(np.array(row))
-    grid = np.array(grid)
+    # Creates a grid of points for where the wigner function is evaluated in
+    grid = np.array([[(j, i) for j in ax_range] for i in ax_range])
 
-    # A dictionary into which every oscillators' variance values will be saved to
-    oscillators_var = {}
-
-    # A dictionary into which every oscillators' expectation values will be saved to
+    # Dictionaries where every oscillators' expectation values, variances, squeezing parameters and -angles,
+    # excitations and thermal excitations will be saved to
     oscillators_exp = {}
-
-    # A list where every covariance matrix will be stored
-    covariance_matrices = []
+    oscillators_var = {}
+    oscillators_sq = {}
+    oscillators_phi = {}
+    oscillators_exci = {}
+    oscillators_therm = {}
 
     # Storage for the values of the Wigner function at each instance in time
     wigner_values = []
 
-    # Storage for the calculated squeezing parameters
-    squeezed_indices = np.nonzero(SQUEEZING_PARAMETERS)[0]
-    squeezes = []
-
-    # Vectorizes the function that calculates the expectation values for Q^2 and applies it to get the
-    # expectation values in an array form
-    E_Q2_vector = np.vectorize(expectation_value_Q2)
-    Q2_expectation = E_Q2_vector(eigenfrequencies)
-    q2_expectation = E_Q2_vector(FREQUENCIES)
-
-    # Does the same vectorization and calculations for P^2 as before for Q^2
-    E_P2_vector = np.vectorize(expectation_value_P2)
-    P2_expectation = E_P2_vector(eigenfrequencies)
-    p2_expectation = E_Q2_vector(FREQUENCIES)
-
-    ##### Random testing a trying to reformat
-
-    #print(Q2_expectation)
-    #print(P2_expectation)
-    print(eigenfrequencies)
-    cov_X_initial_non = initial_cov_matrix(eigenfrequencies, Q2_expectation, P2_expectation,
-                                       SQUEEZING_PARAMETERS, SQUEEZING_ANGLES)
-    cov_X_initial_old = initial_cov_matrix(FREQUENCIES, q2_expectation, p2_expectation,
-                                           SQUEEZING_PARAMETERS, SQUEEZING_ANGLES)
-
-    #####
-
-    """
-    print(cov_X_initial)
-    print(f"Determinant: {np.linalg.det(cov_X_initial)}")
-    print(f"Q2: {Q2_expectation}")
-    print(f"P2: {P2_expectation}")
-    print(f"Purity: {1/(2 * np.sqrt(np.linalg.det(cov_X_initial)))}")
-    """
-
-    print("\n\n\n\n\n")
+    # Creating the initial covariance matrices. The interacting base uses the noninteracting covariance
+    # matrix so only two calculations are needed
+    cov_X_initial_non = initial_cov_matrix(eigenfrequencies, SQUEEZING_PARAMETERS, SQUEEZING_ANGLES)
+    cov_X_initial_old = initial_cov_matrix(FREQUENCIES, SQUEEZING_PARAMETERS, SQUEEZING_ANGLES)
 
     # Iterates the initial state in three different bases
     for t in TIMES:
-        # Diagonals should really be the expectation values and also covariance_save() should be rewritten
-        # and renamed
-
-        # The corresponding symplectic matrix S in the non-interacting base for the value of t
+        # The corresponding symplectic matrix S in the non-interacting base for the value of t.
+        # New covariance matrix and vector of expectation values at moment t are also calculated
         S_non = symplectic(t, K, eigenfrequencies, "non_interacting")
-        variances_non, new_cov_X_non = new_cov_calculation(S_non, cov_X_initial_non, "non")
+        variances_non, new_cov_X_non = new_cov_calculation(S_non, cov_X_initial_non)
         expectation_values_non = S_non @ INITIAL_STATE_VECTOR
 
-        #print("initial state vector")
-        #print(initial_state_vector)
-        #print("new state vector")
-        #print(expectation_values_non)
-
-        # S in the interacting base
+        # S, cov(X) and ⟨x⟩ in the interacting base
         S_int = symplectic(t, K, eigenfrequencies, "interacting")
-        variances_int, new_cov_X_int = new_cov_calculation(S_int, cov_X_initial_non, "int")
+        variances_int, new_cov_X_int = new_cov_calculation(S_int, cov_X_initial_non)
         expectation_values_int = S_int @ INITIAL_STATE_VECTOR
-        #print(new_cov_X_int)
 
-        # S in the old base
+        # S, cov(X) and ⟨x⟩ in the old base
         S_old = symplectic(t, K, eigenfrequencies, "old")
-        variances_old, new_cov_X_old = new_cov_calculation(S_old, cov_X_initial_old, "old")
+        variances_old, new_cov_X_old = new_cov_calculation(S_old, cov_X_initial_old)
         expectation_values_old = S_old @ INITIAL_STATE_VECTOR
 
-        print("Symplectic S_non, t =", t)
-        print(S_non)
-        print()
-
-        print("Symplectic S_int, t =", t)
-        print(S_int)
-        print()
-
-        print("Symplectic S_old, t =", t)
-        print(S_old)
-        print()
-
-        #print(S_old)
-
-        #print()
-        #print("new_cov_X_old")
-        #print(new_cov_X_old)
-
-        #if t == 1:
-            #print("Covs at t==0")
-            #print(new_cov_X_non)
-            #print(new_cov_X_int)
-            #print(new_cov_X_old)
-
-        # Saves the three current covariance matrices
+        # Saves the variances, expectation values, squeezing parameters and -angles,
+        # excitations and thermal excitations into dictionaries
         save_into_dict(t, oscillators_var, variances_non, variances_int, variances_old)
         save_into_dict(t, oscillators_exp, expectation_values_non, expectation_values_int, expectation_values_old)
-
-        # If at the start there were squeezed states save all the squeezing parameters of every oscillator
-        squeezes.append(get_squeezing_parameters(new_cov_X_old))
+        save_parameters(t, new_cov_X_old, oscillators_sq, oscillators_phi,
+                        oscillators_exci, oscillators_therm, FREQUENCIES, expectation_values_old)
 
         # A check is done that all the S matrices are still symplectic
         if not sanity_check_1(S_non, S_int, S_old):
             print("The matrix S is not symplectic anymore.")
             break
 
-        # If only one oscillator is simulated, the corresponding wigner function is calculated
+        # If only one oscillator is simulated, the corresponding wigner functions values are calculated
         if N == 1:
             state_vector = S_non @ INITIAL_STATE_VECTOR
             wigner_operations(grid, new_cov_X_non, wigner_values, state_vector)
 
-    # print("\nexp old:")
-    # print(expectation_values_old)
-
-
-    # if there are squeezed states print all squeezing parameters
-    # if len(squeezed_indices) and N > 1:
-    print("Squeezes")
-    #print(squeezes)
-    for i in squeezes:
-        print(i)
+    visualisation(oscillators_var, oscillators_exp, oscillators_sq, oscillators_phi,
+                  oscillators_exci, oscillators_therm, wigner_values, ax_range)
 
     stop = timeit.default_timer()
     print(f"\nRuntime: {(stop - start):.4f} s.")
-
-    visualisation(oscillators_var, oscillators_exp, wigner_values, ax_range)
-    # print(oscillators_exp)
 
 
 if __name__ == '__main__':
