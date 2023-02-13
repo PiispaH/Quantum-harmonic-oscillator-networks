@@ -10,7 +10,7 @@ contour plot for networks consisting of N oscillators. For small numbers
 of N, individual time evolutions of expectation values and variances can
 be plotted for each oscillator.
 
-###New in 1.0.1:
+### New in 1.0.1:
 - Added new module colormap.py for custom colormaps for contourplots.
 - Added docstrings to every function
 - Bugfixes
